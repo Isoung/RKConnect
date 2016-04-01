@@ -1,1 +1,1 @@
-# RKConnect
+# RKConnect (Roku Connect)
