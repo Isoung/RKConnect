@@ -1,4 +1,5 @@
 # RKConnect (Roku Connect)
+######Provides an interface to connect to a roku, send commands to the roku, and receive roku debugger messages.'
 
 ## Usage
 1. 'gem install rkconnect'
