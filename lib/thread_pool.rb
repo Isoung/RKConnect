@@ -1,4 +1,6 @@
 class ThreadPool
+	attr_reader :pool
+
 	def initialize(size)
 		@size = size
 		@job_queue = Queue.new

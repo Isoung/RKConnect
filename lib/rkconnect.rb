@@ -1,9 +1,7 @@
 require "net/http"
 require 'net/telnet'
-# require "socket"
 require "uri"
 
-# require_relative 'observer'
 require_relative 'thread_pool'
 
 class RKConnect
@@ -22,48 +20,64 @@ class RKConnect
 		@http_address = 'http://' << ip_address << ':'\
 
 		#Single threads could be used, though using a thread pool could provide future possibilites
-		@thread_pool = ThreadPool.new(1)
-
-		#Set an instance variable to block in order to use it elsewhere
+		@thread_pool = ThreadPool.new(2)
 		@callback = block
 
-		@roku_debugger = Net::Telnet::new('Host' => @ip_address, 'Port' => DEBUGGER_PORT, 'Telnetmode' => false)
-
-		#Use a threading to provide Telnet a thread to return data from the Roku debugger
-		@thread_pool.schedule_jobs do 
-			loop do
-				@roku_debugger.cmd("TEST") do |c|
-					if(c.size < 200)
-						@callback.call(c)
-					end
-				end
-			end
-		end
+		@roku_debugger = Net::Telnet::new('Host' => @ip_address, 'Port' => DEBUGGER_PORT, 'Telnetmode' => false, 'Waittime' => 1)
 	end 
 
-	def press_remote(key)
-		#Check to make sure the arg that is passed in is string else an error will be raised
+	def post_key(key)
 		raise 'Invalid key type. Need a string arg' if !key.is_a? String
 
 		Net::HTTP.post_form(URI(@http_address + EXTERNAL_C_PORT + "/keypress/#{key}"), {})
 	end
 
-	def return_channel_listing()
-		return Net::HTTP.get(URI(@http_address + EXTERNAL_C_PORT + "/query/apps"))
-	end
-
-	def launch_channel(app_id)
+	def post_channel(app_id)
+		#Launch a channel based on the application id. Should be only be used in the home screen.
 		raise 'Invalid app_id type. Need a string arg' if !app_id.is_a? String
 
 		Net::HTTP.post_form(URI(@http_address + EXTERNAL_C_PORT + "/launch/#{app_id}"), {})
+	end
+
+	def request_channel_listing()
+		#Returns a http response in xml format
+		return Net::HTTP.get(URI(@http_address + EXTERNAL_C_PORT + "/query/apps"))
+	end
+
+	def request_debug(request)
+		raise 'Invalid request type. Need a string arg' if !request.is_a? String
+
+		callback_string = ' '
+		#Breaks the telnet connection and enters the roku debugger.
+		ignore_exceptions{@roku_debugger.cmd("String" => "\03", "Timeout" => 1)}
+
+		@thread_pool.schedule_jobs do 
+			@roku_debugger.cmd(request) do | telnet_callback |
+				callback_string << telnet_callback
+			end
+		end
+		#There needs to be a sleep here in order to allow the callback for callback_string to return
+		sleep 1
+
+		callback_string.sub!("BrightScript Debugger>", "")
+		array = callback_string.split(/\n/)
+
+		@callback.call(callback_string)
+
+		ignore_exceptions{@roku_debugger.cmd("String" => "cont", "Timeout" => 1)}
+		sleep 1
+	end
+
+	def close_connection
+		@roku_debugger.close
 	end
 
 	private
 		def ignore_exceptions
 			begin
 				yield
-			rescue
-				nil
+			rescue Exception => e
+				# puts(e.message)
 			end
 		end
 end
