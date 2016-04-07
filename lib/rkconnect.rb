@@ -2,8 +2,6 @@ require "net/http"
 require 'net/telnet'
 require "uri"
 
-require_relative 'thread_pool'
-
 class RKConnect
 	# include Observer
 	DEBUGGER_PORT = '8085'
@@ -19,17 +17,16 @@ class RKConnect
 		@ip_address = ip_address
 		@http_address = 'http://' << ip_address << ':'\
 
-		#Single threads could be used, though using a thread pool could provide future possibilites
-		@thread_pool = ThreadPool.new(2)
 		@callback = block
 
-		@roku_debugger = Net::Telnet::new('Host' => @ip_address, 'Port' => DEBUGGER_PORT, 'Telnetmode' => false, 'Waittime' => 1)
+		@roku_debugger = Net::Telnet::new('Host' => @ip_address, 'Port' => DEBUGGER_PORT, 'Telnetmode' => false, 'Waittime' => 0.5)
 	end 
 
 	def post_key(key)
 		raise 'Invalid key type. Need a string arg' if !key.is_a? String
 
-		Net::HTTP.post_form(URI(@http_address + EXTERNAL_C_PORT + "/keypress/#{key}"), {})
+		Net::HTTP.post_form(URI(@http_address + EXTERNAL_C_PORT + "/keypress/#{key}"), {})  
+		sleep 0.25
 	end
 
 	def post_channel(app_id)
@@ -37,6 +34,7 @@ class RKConnect
 		raise 'Invalid app_id type. Need a string arg' if !app_id.is_a? String
 
 		Net::HTTP.post_form(URI(@http_address + EXTERNAL_C_PORT + "/launch/#{app_id}"), {})
+		sleep 0.25
 	end
 
 	def request_channel_listing()
@@ -49,23 +47,18 @@ class RKConnect
 
 		callback_string = ' '
 		#Breaks the telnet connection and enters the roku debugger.
-		ignore_exceptions{@roku_debugger.cmd("String" => "\03", "Timeout" => 1)}
+		ignore_exceptions{@roku_debugger.cmd("String" => "\03", "Timeout" => 0.1)}
 
-		@thread_pool.schedule_jobs do 
-			@roku_debugger.cmd(request) do | telnet_callback |
-				callback_string << telnet_callback
-			end
+		@roku_debugger.cmd(request) do | telnet_callback |
+			callback_string << telnet_callback
 		end
-		#There needs to be a sleep here in order to allow the callback for callback_string to return
-		sleep 1
 
 		callback_string.sub!("BrightScript Debugger>", "")
 		array = callback_string.split(/\n/)
 
 		@callback.call(callback_string)
 
-		ignore_exceptions{@roku_debugger.cmd("String" => "cont", "Timeout" => 1)}
-		sleep 1
+		ignore_exceptions{@roku_debugger.cmd("String" => "cont", "Timeout" => 0.1)}
 	end
 
 	def close_connection
